@@ -1,8 +1,5 @@
 from scheme import *
 
-
-
-
-expr = read_line('(+)')
-scheme_eval(expr, create_global_frame()) # Type SchemeError if you think this errors
-4
+global_frame=create_global_frame()
+bindings = Pair(Pair('x', Pair(2, nil)), Pair(Pair('y', nil), nil)) # equivalent to ((x 2) (y))
+make_let_frame(bindings, global_frame)

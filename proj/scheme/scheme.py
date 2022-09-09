@@ -38,6 +38,8 @@ def scheme_eval(expr, env, _=None): # Optional third argument is ignored
         "*** YOUR CODE HERE ***"
         operator=scheme_eval(first,env)
         validate_procedure(operator)
+        if(isinstance(operator,MacroProcedure)):
+            return scheme_eval(operator.apply_macro(rest,env),env,True)
         operands=rest.map(lambda x:scheme_eval(x,env))
         return scheme_apply(operator,operands,env)
         # END PROBLEM 4
@@ -72,7 +74,12 @@ def eval_all(expressions, env):
     2
     """
     # BEGIN PROBLEM 7
-    return scheme_eval(expressions.first, env) # change this line
+    if(expressions==nil):
+        return None
+    while(expressions.rest!=nil):
+        scheme_eval(expressions.first,env)
+        expressions=expressions.rest
+    return scheme_eval(expressions.first,env,True)
     # END PROBLEM 7
 
 ################
@@ -126,6 +133,13 @@ class Frame(object):
         """
         # BEGIN PROBLEM 10
         "*** YOUR CODE HERE ***"
+        if(len(formals)!=len(vals)):
+            raise SchemeError
+        child_frame=Frame(self)
+        while(formals!=nil):
+            child_frame.define(formals.first,vals.first)
+            formals,vals=formals.rest,vals.rest
+        return child_frame
         # END PROBLEM 10
 
 ##############
@@ -194,6 +208,7 @@ class LambdaProcedure(Procedure):
         of values, for a lexically-scoped call evaluated in my parent environment."""
         # BEGIN PROBLEM 11
         "*** YOUR CODE HERE ***"
+        return self.env.make_child_frame(self.formals,args)
         # END PROBLEM 11
 
     def __str__(self):
@@ -253,10 +268,19 @@ def do_define_form(expressions, env):
         validate_form(expressions, 2, 2) # Checks that expressions is a list of length exactly 2
         # BEGIN PROBLEM 5
         "*** YOUR CODE HERE ***"
+        value=scheme_eval(expressions.rest.first,env)
+        env.define(target,value)
+        return target
         # END PROBLEM 5
     elif isinstance(target, Pair) and scheme_symbolp(target.first):
         # BEGIN PROBLEM 9
         "*** YOUR CODE HERE ***"
+        name=target.first
+        formals=target.rest
+        body=expressions.rest
+        validate_formals(formals)
+        env.define(name,LambdaProcedure(formals,body,env))
+        return name
         # END PROBLEM 9
     else:
         bad_target = target.first if isinstance(target, Pair) else target
@@ -272,6 +296,7 @@ def do_quote_form(expressions, env):
     validate_form(expressions, 1, 1)
     # BEGIN PROBLEM 6
     "*** YOUR CODE HERE ***"
+    return expressions.first
     # END PROBLEM 6
 
 def do_begin_form(expressions, env):
@@ -298,6 +323,7 @@ def do_lambda_form(expressions, env):
     validate_formals(formals)
     # BEGIN PROBLEM 8
     "*** YOUR CODE HERE ***"
+    return LambdaProcedure(formals,expressions.rest,env)
     # END PROBLEM 8
 
 def do_if_form(expressions, env):
@@ -311,9 +337,9 @@ def do_if_form(expressions, env):
     """
     validate_form(expressions, 2, 3)
     if is_true_primitive(scheme_eval(expressions.first, env)):
-        return scheme_eval(expressions.rest.first, env)
+        return scheme_eval(expressions.rest.first, env,True)
     elif len(expressions) == 3:
-        return scheme_eval(expressions.rest.rest.first, env)
+        return scheme_eval(expressions.rest.rest.first, env,True)
 
 def do_and_form(expressions, env):
     """Evaluate a (short-circuited) and form.
@@ -330,6 +356,14 @@ def do_and_form(expressions, env):
     """
     # BEGIN PROBLEM 12
     "*** YOUR CODE HERE ***"
+    if(expressions==nil):
+        return True
+    while(expressions.rest!=nil):
+        val=scheme_eval(expressions.first,env)
+        if(is_false_primitive(val)):
+            return False
+        expressions=expressions.rest
+    return scheme_eval(expressions.first,env,True) if is_true_primitive(expressions.first) else False
     # END PROBLEM 12
 
 def do_or_form(expressions, env):
@@ -347,6 +381,14 @@ def do_or_form(expressions, env):
     """
     # BEGIN PROBLEM 12
     "*** YOUR CODE HERE ***"
+    if(expressions==nil):
+        return False
+    while(expressions.rest!=nil):
+        val=scheme_eval(expressions.first,env)
+        if(is_true_primitive(val)):
+            return val
+        expressions=expressions.rest
+    return scheme_eval(expressions.first,env,True) if is_true_primitive(expressions.first) else False
     # END PROBLEM 12
 
 def do_cond_form(expressions, env):
@@ -367,6 +409,9 @@ def do_cond_form(expressions, env):
         if is_true_primitive(test):
             # BEGIN PROBLEM 13
             "*** YOUR CODE HERE ***"
+            if(clause.rest==nil):
+                return test
+            return eval_all(clause.rest,env)
             # END PROBLEM 13
         expressions = expressions.rest
 
@@ -391,6 +436,12 @@ def make_let_frame(bindings, env):
     names, values = nil, nil
     # BEGIN PROBLEM 14
     "*** YOUR CODE HERE ***"
+    while(bindings!=nil):
+        validate_form(bindings.first,2,2)
+        names=Pair(bindings.first.first,names)
+        values=Pair(scheme_eval(bindings.first.rest.first,env),values)
+        bindings=bindings.rest
+    validate_formals(names)
     # END PROBLEM 14
     return env.make_child_frame(names, values)
 
@@ -406,6 +457,16 @@ def do_define_macro(expressions, env):
     """
     # BEGIN Problem 20
     "*** YOUR CODE HERE ***"
+    validate_form(expressions,2)
+    target=expressions.first
+    if(isinstance(target,Pair) and scheme_symbolp(target.first)):
+        name=target.first
+        formals=target.rest
+        body=expressions.rest
+        env.define(name,MacroProcedure(formals,body,env))
+        return name
+    else:
+        raise(SchemeError)
     # END Problem 20
 
 
@@ -497,7 +558,7 @@ def validate_procedure(procedure):
 # Dynamic Scope #
 #################
 
-class MuProcedure(Procedure):
+class  MuProcedure(Procedure):
     """A procedure defined by a mu expression, which has dynamic scope.
      _________________
     < Scheme is cool! >
@@ -517,6 +578,8 @@ class MuProcedure(Procedure):
 
     # BEGIN PROBLEM 15
     "*** YOUR CODE HERE ***"
+    def make_call_frame(self,args,env):
+        return env.make_child_frame(self.formals,args)
     # END PROBLEM 15
 
     def __str__(self):
@@ -533,6 +596,7 @@ def do_mu_form(expressions, env):
     validate_formals(formals)
     # BEGIN PROBLEM 18
     "*** YOUR CODE HERE ***"
+    return MuProcedure(formals,expressions.rest)
     # END PROBLEM 18
 
 SPECIAL_FORMS['mu'] = do_mu_form
@@ -605,6 +669,9 @@ def optimize_tail_calls(prior_eval_function):
         result = Thunk(expr, env)
         # BEGIN
         "*** YOUR CODE HERE ***"
+        while(isinstance(result,Thunk)):
+            result=prior_eval_function(result.expr,result.env)
+        return result
         # END
     return optimized_eval
 
@@ -616,7 +683,7 @@ def optimize_tail_calls(prior_eval_function):
 ################################################################
 # Uncomment the following line to apply tail call optimization #
 ################################################################
-# scheme_eval = optimize_tail_calls(scheme_eval)
+scheme_eval = optimize_tail_calls(scheme_eval)
 
 
 
